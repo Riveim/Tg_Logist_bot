@@ -37,6 +37,22 @@ def normalize_phone(s: str) -> str | None:
     return None
 
 async def notify_admins_new_request(bot: Bot, tg_id: int, phone: str, req_id: int):
+    ADMIN_NOTIFY = os.getenv("ADMIN_NOTIFY", "1") == "1"
+    ADMIN_NOTIFY_LOADS = os.getenv("ADMIN_NOTIFY_LOADS", "0") == "1"
+
+    async def admin_notify(bot: Bot, text: str, *, important: bool = True):
+        if not ADMIN_NOTIFY:
+            return
+        # если это "неважное" (например, loads), можно гейтить отдельным флагом
+        if not important and not ADMIN_NOTIFY_LOADS:
+            return
+        for admin_id in ADMINS:
+            try:
+                await bot.send_message(admin_id, text)
+            except Exception:
+                pass
+
+    
     text = (
         "🧾 *Новый запрос доступа*\n"
         f"TG ID: `{tg_id}`\n"
@@ -83,7 +99,7 @@ async def main():
     async def ask_phone(chat_id: int):
         await bot.send_message(
             chat_id,
-            "Введи номер телефона в формате `+998901234567` или нажми кнопку «📲 Отправить номер».",
+            "Введите номер телефона в формате `+998901234567` или нажмите кнопку «📲 Отправить номер».",
             reply_markup=phone_request_kb()
         )
 
@@ -95,14 +111,14 @@ async def main():
         # админ-панель
         if is_admin(tg_id):
             await m.answer(
-                "Админ-меню: нажми кнопку или используй /pending",
+                "Админ-меню: нажмите кнопку или используйте /pending",
                 reply_markup=admin_panel_kb()
             )
 
         if db.has_access(tg_id):
             until = db.get_access_until(tg_id)
             await m.answer(
-                f"✅ Доступ активен до `{until}`.\nНажми «🚚 Актуальные заявки».",
+                f"✅ Доступ активен до `{until}`.\nНажмите «🚚 Актуальные заявки».",
                 reply_markup=user_menu()
             )
             return
@@ -336,3 +352,4 @@ async def main():
 if __name__ == "__main__":
     import asyncio
     asyncio.run(main())
+
