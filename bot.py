@@ -122,6 +122,11 @@ async def main():
             reply_markup=phone_request_kb()
         )
 
+    @dp.message(F.text == "/myid")
+    async def myid(m: Message):
+        await m.answer(f"Твой TG ID: `{m.from_user.id}`")
+
+    
     @dp.message(CommandStart())
     async def start(m: Message):
         tg_id = m.from_user.id
@@ -403,3 +408,4 @@ async def main():
 if __name__ == "__main__":
     import asyncio
     asyncio.run(main())
+
