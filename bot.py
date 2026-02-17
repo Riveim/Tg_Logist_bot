@@ -1,4 +1,4 @@
-﻿import os
+import os
 import re
 import logging
 from dotenv import load_dotenv
@@ -14,45 +14,55 @@ from server_client import ServerClient
 load_dotenv()
 logging.basicConfig(level=logging.INFO)
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "")
+BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 ADMINS = {int(x.strip()) for x in os.getenv("ADMINS", "").split(",") if x.strip().isdigit()}
 
 WEEK_PRICE = int(os.getenv("WEEK_PRICE_UZS", "20000"))
 ACCESS_DAYS = int(os.getenv("ACCESS_DAYS", "7"))
+
+# Уведомления админу
+ADMIN_NOTIFY = os.getenv("ADMIN_NOTIFY", "1") == "1"           # важные события
+ADMIN_NOTIFY_LOADS = os.getenv("ADMIN_NOTIFY_LOADS", "0") == "1"  # "🚚 открыл заявки" (спамно)
 
 db = DB("bot.db")
 server = ServerClient()
 
 PHONE_RE = re.compile(r"^\+998\d{9}$")  # +998901234567
 
+
 def is_admin(user_id: int) -> bool:
     return user_id in ADMINS
+
 
 def normalize_phone(s: str) -> str | None:
     s = s.strip().replace(" ", "").replace("-", "").replace("(", "").replace(")", "")
     if s.startswith("998") and not s.startswith("+998"):
-        s = "+"+s
+        s = "+" + s
     if PHONE_RE.fullmatch(s):
         return s
     return None
 
+
+async def admin_notify(bot: Bot, text: str, *, important: bool = True):
+    """
+    Шлёт уведомления админу(ам) в личку.
+    important=True  -> всегда, если ADMIN_NOTIFY=1
+    important=False -> только если ADMIN_NOTIFY_LOADS=1
+    """
+    if not ADMIN_NOTIFY:
+        return
+    if (not important) and (not ADMIN_NOTIFY_LOADS):
+        return
+
+    for admin_id in ADMINS:
+        try:
+            await bot.send_message(admin_id, text)
+        except Exception:
+            # чтобы бот не падал из-за проблем с отправкой админу
+            pass
+
+
 async def notify_admins_new_request(bot: Bot, tg_id: int, phone: str, req_id: int):
-    ADMIN_NOTIFY = os.getenv("ADMIN_NOTIFY", "1") == "1"
-    ADMIN_NOTIFY_LOADS = os.getenv("ADMIN_NOTIFY_LOADS", "0") == "1"
-
-    async def admin_notify(bot: Bot, text: str, *, important: bool = True):
-        if not ADMIN_NOTIFY:
-            return
-        # если это "неважное" (например, loads), можно гейтить отдельным флагом
-        if not important and not ADMIN_NOTIFY_LOADS:
-            return
-        for admin_id in ADMINS:
-            try:
-                await bot.send_message(admin_id, text)
-            except Exception:
-                pass
-
-    
     text = (
         "🧾 *Новый запрос доступа*\n"
         f"TG ID: `{tg_id}`\n"
@@ -64,7 +74,11 @@ async def notify_admins_new_request(bot: Bot, tg_id: int, phone: str, req_id: in
         "2) После оплаты нажми ✅ Подтвердить оплату"
     )
     for admin_id in ADMINS:
-        await bot.send_message(admin_id, text, reply_markup=admin_decision_kb(req_id))
+        try:
+            await bot.send_message(admin_id, text, reply_markup=admin_decision_kb(req_id))
+        except Exception:
+            pass
+
 
 def format_loads(data: dict) -> str:
     # Ожидаем JSON формата: {"loads":[{...},{...}]}
@@ -80,11 +94,16 @@ def format_loads(data: dict) -> str:
             price = item.get("price", "")
             contact = item.get("phone", "") or item.get("contact", "")
             out.append(f"\n{i}) *{frm} → {to}*")
-            if cargo: out.append(f"📦 {cargo}")
-            if price: out.append(f"💰 {price}")
-            if contact: out.append(f"☎️ {contact}")
+            if cargo:
+                out.append(f"📦 {cargo}")
+            if price:
+                out.append(f"💰 {price}")
+            if contact:
+                out.append(f"☎️ {contact}")
         return "\n".join(out)
+
     return f"Ответ сервера:\n`{str(data)[:3500]}`"
+
 
 async def main():
     if not BOT_TOKEN:
@@ -99,7 +118,7 @@ async def main():
     async def ask_phone(chat_id: int):
         await bot.send_message(
             chat_id,
-            "Введите номер телефона в формате `+998901234567` или нажмите кнопку «📲 Отправить номер».",
+            "Введи номер телефона в формате `+998901234567` или нажми кнопку «📲 Отправить номер».",
             reply_markup=phone_request_kb()
         )
 
@@ -108,17 +127,19 @@ async def main():
         tg_id = m.from_user.id
         db.ensure_user(tg_id)
 
+        await admin_notify(bot, f"👤 /start от `{tg_id}`", important=True)
+
         # админ-панель
         if is_admin(tg_id):
             await m.answer(
-                "Админ-меню: нажмите кнопку или используйте /pending",
+                "Админ-меню: нажми кнопку или используй /pending",
                 reply_markup=admin_panel_kb()
             )
 
         if db.has_access(tg_id):
             until = db.get_access_until(tg_id)
             await m.answer(
-                f"✅ Доступ активен до `{until}`.\nНажмите «🚚 Актуальные заявки».",
+                f"✅ Доступ активен до `{until}`.\nНажми «🚚 Актуальные заявки».",
                 reply_markup=user_menu()
             )
             return
@@ -138,11 +159,13 @@ async def main():
         req_id = db.create_access_request(tg_id, phone)
         await m.answer(
             f"Номер `{phone}` сохранён.\n"
-            f"Я выставлю счёт в Click на этот номер. После оплаты я подтвержу и доступ откроется.\n"
+            f"Я выставлю счёт на этот номер. После оплаты я подтвержу и доступ откроется.\n"
             f"ID заявки: `{req_id}`",
             reply_markup=user_menu()
         )
+
         await notify_admins_new_request(bot, tg_id, phone, req_id)
+        await admin_notify(bot, f"🧾 Pending-запрос `{req_id}` от `{tg_id}` (`{phone}`)", important=True)
 
     @dp.callback_query(F.data == "change_phone")
     async def change_phone(c: CallbackQuery):
@@ -154,9 +177,11 @@ async def main():
     async def got_contact(m: Message):
         tg_id = m.from_user.id
         phone_raw = m.contact.phone_number
-        # телега может прислать без "+"
+
+        # Telegram может прислать без "+"
         if phone_raw.startswith("998") and not phone_raw.startswith("+998"):
             phone_raw = "+" + phone_raw
+
         phone = normalize_phone(phone_raw)
         if not phone:
             await m.answer("Не смог распознать номер. Пришли в формате `+998901234567`.")
@@ -168,10 +193,12 @@ async def main():
         req_id = db.create_access_request(tg_id, phone)
         await m.answer(
             f"✅ Номер сохранён: `{phone}`\n"
-            f"Я выставлю счёт в Click на этот номер. После оплаты подтвержу и доступ откроется.\n"
+            f"Я выставлю счёт на этот номер. После оплаты подтвержу и доступ откроется.\n"
             f"ID заявки: `{req_id}`",
             reply_markup=user_menu()
         )
+
+        await admin_notify(bot, f"📞 Номер получен: `{phone}` от `{tg_id}`", important=True)
         await notify_admins_new_request(bot, tg_id, phone, req_id)
 
     @dp.message(F.text)
@@ -194,10 +221,12 @@ async def main():
         req_id = db.create_access_request(tg_id, phone)
         await m.answer(
             f"✅ Номер сохранён: `{phone}`\n"
-            f"Я выставлю счёт в Click на этот номер. После оплаты подтвержу и доступ откроется.\n"
+            f"Я выставлю счёт на этот номер. После оплаты подтвержу и доступ откроется.\n"
             f"ID заявки: `{req_id}`",
             reply_markup=user_menu()
         )
+
+        await admin_notify(bot, f"📞 Номер получен: `{phone}` от `{tg_id}`", important=True)
         await notify_admins_new_request(bot, tg_id, phone, req_id)
 
     @dp.callback_query(F.data == "status")
@@ -207,19 +236,27 @@ async def main():
         until = db.get_access_until(tg_id)
 
         if db.has_access(tg_id):
-            await bot.send_message(c.message.chat.id, f"✅ Доступ активен до `{until}`", reply_markup=user_menu())
+            await bot.send_message(
+                c.message.chat.id,
+                f"✅ Доступ активен до `{until}`",
+                reply_markup=user_menu()
+            )
             return
 
         phone = db.get_phone(tg_id)
         if not phone:
             waiting_phone.add(tg_id)
-            await bot.send_message(c.message.chat.id, "⛔️ Доступа нет. Сначала укажи номер.", reply_markup=user_menu())
+            await bot.send_message(
+                c.message.chat.id,
+                "⛔️ Доступа нет. Сначала укажи номер.",
+                reply_markup=user_menu()
+            )
             await ask_phone(c.message.chat.id)
             return
 
         await bot.send_message(
             c.message.chat.id,
-            f"⛔️ Доступа нет.\nНомер `{phone}` есть. Счёт выставлю/уже выставлен — после оплаты я подтвержу.",
+            f"⛔️ Доступа нет.\nНомер `{phone}` есть. После оплаты я подтвержу и открою доступ.",
             reply_markup=user_menu()
         )
 
@@ -227,16 +264,21 @@ async def main():
     async def loads(c: CallbackQuery):
         await c.answer()
         tg_id = c.from_user.id
+
         if not db.has_access(tg_id):
             phone = db.get_phone(tg_id)
             if not phone:
                 waiting_phone.add(tg_id)
-                await bot.send_message(c.message.chat.id, "⛔️ Доступ закрыт. Укажи номер телефона.", reply_markup=user_menu())
+                await bot.send_message(
+                    c.message.chat.id,
+                    "⛔️ Доступ закрыт. Укажи номер телефона.",
+                    reply_markup=user_menu()
+                )
                 await ask_phone(c.message.chat.id)
             else:
                 await bot.send_message(
                     c.message.chat.id,
-                    f"⛔️ Доступ закрыт. Я выставлю счёт на `{phone}` и после оплаты открою доступ.",
+                    f"⛔️ Доступ закрыт. Счёт будет выставлен на `{phone}`. После оплаты открою доступ.",
                     reply_markup=user_menu()
                 )
             return
@@ -252,6 +294,9 @@ async def main():
 
         text = format_loads(resp.get("data", {}))
         await bot.send_message(c.message.chat.id, text, reply_markup=user_menu())
+
+        # Неважное уведомление (включается флагом ADMIN_NOTIFY_LOADS=1)
+        await admin_notify(bot, f"🚚 Открыл заявки: `{tg_id}`", important=False)
 
     # ====== АДМИН-ЧАСТЬ ======
 
@@ -322,6 +367,8 @@ async def main():
             reply_markup=user_menu()
         )
 
+        await admin_notify(bot, f"✅ APPROVED `{row['tg_id']}` до `{until}` (req `{req_id}`)", important=True)
+
     @dp.callback_query(F.data.startswith("reject:"))
     async def reject(c: CallbackQuery):
         if not is_admin(c.from_user.id):
@@ -343,13 +390,16 @@ async def main():
 
         await bot.send_message(
             int(row["tg_id"]),
-            "❌ Оплата не подтверждена. Если нужно — укажи номер снова (или админ выставит счёт заново).",
+            "❌ Оплата не подтверждена. Если нужно — отправь номер снова через /start.",
             reply_markup=user_menu()
         )
 
+        await admin_notify(bot, f"❌ REJECTED `{row['tg_id']}` (req `{req_id}`)", important=True)
+
+    logging.info("Bot started. Polling...")
     await dp.start_polling(bot)
+
 
 if __name__ == "__main__":
     import asyncio
     asyncio.run(main())
-
