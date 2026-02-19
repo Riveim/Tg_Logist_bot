@@ -80,8 +80,8 @@ def format_loads(data: dict) -> str:
 
         for i, item in enumerate(loads, 1):
             direction = item.get("direction", "—")
-            cargo_tonnage = item.get("cargo_tonnage", "—")
-            vehicle_type = item.get("vehicle_type", "—")
+            cargo_tonnage = item.get("cargo", "—")
+            vehicle_type = item.get("transport", "—")
             date = item.get("date", "—")
             extra = item.get("extra", "")
 
@@ -372,3 +372,4 @@ async def main():
 if __name__ == "__main__":
     import asyncio
     asyncio.run(main())
+
