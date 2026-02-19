@@ -88,12 +88,13 @@ def format_loads(data: dict) -> str:
             out.append(
                 f"\n*i{i})*\n"
                 f"*Направление:* {direction}\n"
-                f"*Карго и тоннаж:* {cargo_tonnage}\n"
-                f"*Тип транспорта:* {vehicle_type}\n"
-                f"*Дата:* {date}"
+                f"*Карго и тоннаж:* {cargo}\n"
+                f"*Тип транспорта:* {transport}\n"
             )
             if extra:
                 out.append(f"*Доп информация:* {extra}")
+            if data:
+                out.append(f"*Дата:* {date}")
 
         return "\n".join(out)
 
@@ -372,4 +373,5 @@ async def main():
 if __name__ == "__main__":
     import asyncio
     asyncio.run(main())
+
 
