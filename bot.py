@@ -36,23 +36,22 @@ def normalize_phone(s: str) -> str | None:
         return s
     return None
 
+async def admin_notify(bot: Bot, text: str, *, important: bool = True):
+    admin_notify_enabled = os.getenv("ADMIN_NOTIFY", "1") == "1"
+    admin_notify_loads = os.getenv("ADMIN_NOTIFY_LOADS", "0") == "1"
+
+    if not admin_notify_enabled:
+        return
+    if not important and not admin_notify_loads:
+        return
+
+    for admin_id in ADMINS:
+        try:
+            await bot.send_message(admin_id, text)
+        except Exception:
+            pass
+
 async def notify_admins_new_request(bot: Bot, tg_id: int, phone: str, req_id: int):
-    ADMIN_NOTIFY = os.getenv("ADMIN_NOTIFY", "1") == "1"
-    ADMIN_NOTIFY_LOADS = os.getenv("ADMIN_NOTIFY_LOADS", "0") == "1"
-
-    async def admin_notify(bot: Bot, text: str, *, important: bool = True):
-        if not ADMIN_NOTIFY:
-            return
-        # если это "неважное" (например, loads), можно гейтить отдельным флагом
-        if not important and not ADMIN_NOTIFY_LOADS:
-            return
-        for admin_id in ADMINS:
-            try:
-                await bot.send_message(admin_id, text)
-            except Exception:
-                pass
-
-
     text = (
         "🧾 *Новый запрос доступа*\n"
         f"TG ID: `{tg_id}`\n"
