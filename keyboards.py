@@ -14,6 +14,16 @@ def phone_request_kb():
         one_time_keyboard=True
     )
 
+def payment_kb(payment_url: str | None = None):
+    if payment_url:
+        return InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="💳 Оплатить доступ", url=payment_url)]
+        ])
+
+    return InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="💳 Оплатить доступ", callback_data="payment_placeholder")]
+    ])
+
 def admin_decision_kb(req_id: int):
     return InlineKeyboardMarkup(inline_keyboard=[
         [

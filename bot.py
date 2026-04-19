@@ -8,7 +8,7 @@ from aiogram.types import Message, CallbackQuery
 from aiogram.filters import CommandStart
 
 from db import DB
-from keyboards import user_menu, phone_request_kb, admin_decision_kb, admin_panel_kb
+from keyboards import user_menu, phone_request_kb, admin_decision_kb, admin_panel_kb, payment_kb
 from server_client import ServerClient
 
 load_dotenv()
@@ -19,6 +19,7 @@ ADMINS = {int(x.strip()) for x in os.getenv("ADMINS", "").split(",") if x.strip(
 
 WEEK_PRICE = int(os.getenv("WEEK_PRICE_UZS", "20000"))
 ACCESS_DAYS = int(os.getenv("ACCESS_DAYS", "7"))
+PAYMENT_URL = os.getenv("PAYMENT_URL", "").strip() or None
 
 db = DB("bot.db")
 server = ServerClient()
@@ -59,7 +60,7 @@ async def notify_admins_new_request(bot: Bot, tg_id: int, phone: str, req_id: in
         f"Тариф: *{WEEK_PRICE}* сум / *{ACCESS_DAYS}* дней\n"
         f"Request ID: `{req_id}`\n\n"
         "Действия:\n"
-        "1) Выставь счёт в Click Business на этот номер\n"
+        "1) Проверь оплату пользователя\n"
         "2) После оплаты нажми ✅ Подтвердить оплату"
     )
     for admin_id in ADMINS:
@@ -152,8 +153,12 @@ async def main():
         req_id = db.create_access_request(tg_id, phone)
         await m.answer(
             f"Номер `{phone}` сохранён.\n"
-            f"Я выставлю счёт в Click на этот номер. После оплаты я подтвержу и доступ откроется.\n"
+            f"Нажми кнопку оплаты ниже. После оплаты я подтвержу и доступ откроется.\n"
             f"ID заявки: `{req_id}`",
+            reply_markup=payment_kb(PAYMENT_URL)
+        )
+        await m.answer(
+            "Когда добавите реальную ссылку или QR-код, эта же кнопка будет вести на оплату.",
             reply_markup=user_menu()
         )
         await notify_admins_new_request(bot, tg_id, phone, req_id)
@@ -183,8 +188,12 @@ async def main():
         req_id = db.create_access_request(tg_id, phone)
         await m.answer(
             f"✅ Номер сохранён: `{phone}`\n"
-            f"Я выставлю счёт в Click на этот номер. После оплаты подтвержу и доступ откроется.\n"
+            f"Нажми кнопку оплаты ниже. После оплаты подтвержу и доступ откроется.\n"
             f"ID заявки: `{req_id}`",
+            reply_markup=payment_kb(PAYMENT_URL)
+        )
+        await m.answer(
+            "Когда добавите реальную ссылку или QR-код, эта же кнопка будет вести на оплату.",
             reply_markup=user_menu()
         )
         await notify_admins_new_request(bot, tg_id, phone, req_id)
@@ -210,8 +219,12 @@ async def main():
         req_id = db.create_access_request(tg_id, phone)
         await m.answer(
             f"✅ Номер сохранён: `{phone}`\n"
-            f"Я выставлю счёт в Click на этот номер. После оплаты подтвержу и доступ откроется.\n"
+            f"Нажми кнопку оплаты ниже. После оплаты подтвержу и доступ откроется.\n"
             f"ID заявки: `{req_id}`",
+            reply_markup=payment_kb(PAYMENT_URL)
+        )
+        await m.answer(
+            "Когда добавите реальную ссылку или QR-код, эта же кнопка будет вести на оплату.",
             reply_markup=user_menu()
         )
         await notify_admins_new_request(bot, tg_id, phone, req_id)
@@ -235,7 +248,21 @@ async def main():
 
         await bot.send_message(
             c.message.chat.id,
-            f"⛔️ Доступа нет.\nНомер `{phone}` есть. Счёт выставлю/уже выставлен — после оплаты я подтвержу.",
+            f"⛔️ Доступа нет.\nНомер `{phone}` есть. Нажми кнопку оплаты, а после оплаты я подтвержу доступ.",
+            reply_markup=payment_kb(PAYMENT_URL)
+        )
+        await bot.send_message(
+            c.message.chat.id,
+            "Статус можно проверить кнопкой «📌 Статус доступа».",
+            reply_markup=user_menu()
+        )
+
+    @dp.callback_query(F.data == "payment_placeholder")
+    async def payment_placeholder(c: CallbackQuery):
+        await c.answer()
+        await bot.send_message(
+            c.message.chat.id,
+            "Кнопка оплаты уже стоит. Позже сюда можно добавить ссылку для оплаты или QR-код.",
             reply_markup=user_menu()
         )
 
@@ -252,7 +279,12 @@ async def main():
             else:
                 await bot.send_message(
                     c.message.chat.id,
-                    f"⛔️ Доступ закрыт. Я выставлю счёт на `{phone}` и после оплаты открою доступ.",
+                    f"⛔️ Доступ закрыт. Нажми кнопку оплаты, а после оплаты я открою доступ.",
+                    reply_markup=payment_kb(PAYMENT_URL)
+                )
+                await bot.send_message(
+                    c.message.chat.id,
+                    "Когда будет готова реальная оплата, эта же кнопка будет вести на неё.",
                     reply_markup=user_menu()
                 )
             return
